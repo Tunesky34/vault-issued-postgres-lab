@@ -1,9 +1,8 @@
 # Vault-issued PostgreSQL credentials lab
 
-This is a disposable, loopback-only Vault/Nomad/PostgreSQL lab. It is separate
-from the Superset POC in the repository root and never uses production hosts or
-secrets. Vault runs in dev mode with an in-memory root token, so do not reuse
-these settings outside the lab.
+This is a disposable, loopback-only Vault/Nomad/PostgreSQL lab. It never uses
+production hosts or secrets. Vault runs in dev mode with an in-memory root
+token, so do not reuse these settings outside the lab.
 
 ## Requirements and one-command setup
 
@@ -17,11 +16,14 @@ From the repository root:
 ./vault-lab/demo.sh setup
 ```
 
-The script starts PostgreSQL, Vault, and a single-node Nomad dev cluster;
+The script starts PostgreSQL, Vault, and a single-node Nomad lab cluster;
 builds the demo task image; configures Vault's database and JWT auth methods;
-and submits the Nomad job. The Nomad client uses the local Docker socket and the
-demo's Docker network, so run this only on a trusted lab machine. The Vault UI
-is at <http://127.0.0.1:8200> (lab token `lab-only-root-token`); Nomad is at
+and submits the Nomad job. The Nomad client uses the local Docker socket and
+host cgroup interface to run its Docker task. This gives the Nomad container
+host-level privileges; use only on a disposable, trusted lab machine. The
+Nomad allocation directory is bind-mounted at the same host path so Docker
+tasks can see rendered templates. The Vault UI is at <http://127.0.0.1:8200>
+(lab token `lab-only-root-token`); Nomad is at
 <http://127.0.0.1:4646>. PostgreSQL has no published host port.
 
 The generated credentials are short lived and stay in the Nomad allocation's
@@ -44,9 +46,9 @@ secrets directory. Do not copy them into tickets or logs.
 * Nomad's `template` renders the dynamic login to `secrets/db.json`, owned by
   the unprivileged demo task user with mode `0400`. The task rereads that file
   and opens a fresh database connection per query, so template updates take
-  effect without restarting the task. This intentionally
-  demonstrates the conservative pool size of zero; a production pool needs
-  explicit lifetime and credential-reload behavior.
+  effect without restarting the task. This intentionally demonstrates the
+  conservative pool size of zero; a production pool needs explicit lifetime
+  and credential-reload behavior.
 
 ## Rotation, revocation, and recovery demo
 
@@ -93,9 +95,9 @@ For a clean rerun, delete only this lab's data volume and start again:
 ./vault-lab/demo.sh setup
 ```
 
-`reset` is destructive to the lab's PostgreSQL data only. The Compose project
-uses the explicitly named `vault-lab` Docker network and its own named volume;
-it does not remove the root Superset POC's volumes.
+`reset` deletes this lab's PostgreSQL volume and Nomad state directory. The
+Compose project uses the explicitly named `vault-lab` Docker network and its
+own named volume; it does not remove the root Superset POC's volumes.
 
 ## Service migration runbook
 

@@ -38,17 +38,29 @@ services:
 
   nomad:
     image: hashicorp/nomad:1.10.5
-    command: ["agent", "-dev", "-bind=0.0.0.0", "-client=0.0.0.0", "-config=/etc/nomad.d/nomad.hcl"]
+    command:
+      - agent
+      - -bind=0.0.0.0
+      - -data-dir=${NOMAD_DATA_DIR:-/tmp/vault-lab-nomad-data}
+      - -config=/etc/nomad.d/nomad.hcl
+    privileged: true
+    cgroup: host
     ports:
       - "127.0.0.1:4646:4646"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - type: bind
+        source: ${NOMAD_DATA_DIR:-/tmp/vault-lab-nomad-data}
+        target: ${NOMAD_DATA_DIR:-/tmp/vault-lab-nomad-data}
+        bind:
+          propagation: rshared
       - ./nomad.hcl:/etc/nomad.d/nomad.hcl:ro
       - ./postgres-demo.nomad.hcl:/etc/nomad.d/postgres-demo.nomad.hcl:ro
     networks:
       - lab
     healthcheck:
-      test: ["CMD", "nomad", "-address=http://127.0.0.1:4646", "server", "members"]
+      test: ["CMD", "nomad", "server", "members", "-address=http://127.0.0.1:4646"]
       interval: 3s
       timeout: 3s
       retries: 30

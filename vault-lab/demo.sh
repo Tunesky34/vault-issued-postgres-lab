@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export NOMAD_DATA_DIR="$ROOT/.nomad-data"
 COMPOSE=(docker compose --project-directory "$ROOT" -f "$ROOT/compose.yaml")
 VAULT_TOKEN=lab-only-root-token
 JOB=postgres-credential-demo
@@ -49,16 +50,22 @@ path "sys/leases/renew" {
 }
 POLICY
 
-  vault write auth/jwt-nomad/role/nomad-postgres-demo \
-    role_type=jwt \
-    bound_audiences=vault.io \
-    bound_claims='{"nomad_namespace":"default","nomad_job_id":"postgres-credential-demo"}' \
-    bound_claims_type=string \
-    user_claim=/nomad_job_id \
-    user_claim_json_pointer=true \
-    token_policies=nomad-postgres-demo \
-    token_type=service \
-    token_period=1h
+  vault write auth/jwt-nomad/role/nomad-postgres-demo - <<'ROLE'
+{
+  "role_type": "jwt",
+  "bound_audiences": ["vault.io"],
+  "bound_claims": {
+    "nomad_namespace": "default",
+    "nomad_job_id": "postgres-credential-demo"
+  },
+  "bound_claims_type": "string",
+  "user_claim": "/nomad_job_id",
+  "user_claim_json_pointer": true,
+  "token_policies": ["nomad-postgres-demo"],
+  "token_type": "service",
+  "token_period": "1h"
+}
+ROLE
 
   vault write database/config/lab-postgres \
     plugin_name=postgresql-database-plugin \
@@ -108,6 +115,7 @@ task_restarts() {
 }
 
 setup() {
+  mkdir -p "$NOMAD_DATA_DIR"
   "${COMPOSE[@]}" up -d postgres vault nomad
   wait_for_service postgres
   wait_for_service vault
@@ -188,7 +196,10 @@ try:
       connect_timeout=3,
     )
 except psycopg2.Error as error:
-    if error.pgcode in ("28P01", "28000"):
+    message = str(error).lower()
+    if error.pgcode in ("28P01", "28000") or "password authentication failed" in message or (
+      "role" in message and "does not exist" in message
+    ):
       print("revoked login rejected by PostgreSQL")
       raise SystemExit(0)
     print(f"could not verify revoked login rejection: {type(error).__name__} sqlstate={error.pgcode}")
@@ -247,8 +258,11 @@ case "${1:-}" in
     echo "Vault configuration restored and the Nomad job reconciled."
     ;;
   reset)
-    echo "Removing only the vault-lab containers and PostgreSQL volume."
+    echo "Removing the lab containers, PostgreSQL volume, and Nomad state."
     "${COMPOSE[@]}" down --volumes
+    if [[ -d "$NOMAD_DATA_DIR" ]]; then
+      rm -r -- "$NOMAD_DATA_DIR"
+    fi
     ;;
   *)
     echo "Usage: $0 {setup|status|logs|rotate|revoke|fix|reset}" >&2
